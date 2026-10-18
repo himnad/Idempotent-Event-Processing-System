@@ -1,27 +1,28 @@
 
+import json
 import os
 import sqlite3
 import threading
+from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Any
 
 from app.rabbitmq import publish_event
 
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 DEMO_DB_PATH = os.getenv("DEMO_DB_PATH", "/tmp/demo_events.db")
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
 demo_lock = threading.Lock()
 
 app = FastAPI(
     title="Idempotent Event Processing System",
-    description=(
-        "Public SQLite demo on Render; "
-        "full RabbitMQ + Redis architecture available via Docker Compose."
-        if DEMO_MODE
-        else "Fault-tolerant webhook processing using RabbitMQ and Redis"
-    ),
-    version="1.1.0"
+    description="Webhook processing with RabbitMQ, Redis and SQLite demo mode",
+    version="1.2.0"
 )
 
 
@@ -42,8 +43,6 @@ def save_demo_event(event: WebhookEvent):
                 )
             """)
 
-            import json
-
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO demo_events
@@ -58,26 +57,30 @@ def save_demo_event(event: WebhookEvent):
             )
 
             conn.commit()
+
             return "processed" if cursor.rowcount == 1 else "duplicate"
 
 
-@app.get("/")
-def root():
+@app.get("/api/health")
+@app.get("/health")
+def health():
     return {
-        "message": "Event Processing API is running",
+        "status": "ok",
         "mode": "demo" if DEMO_MODE else "rabbitmq"
     }
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
+@app.post("/api/webhooks", status_code=202)
 @app.post("/webhooks", status_code=202)
 def receive_webhook(event: WebhookEvent):
     if DEMO_MODE:
-        result = save_demo_event(event)
+        try:
+            result = save_demo_event(event)
+        except sqlite3.Error as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Demo database unavailable"
+            ) from exc
 
         return {
             "status": result,
@@ -99,3 +102,24 @@ def receive_webhook(event: WebhookEvent):
             status_code=503,
             detail="Message broker unavailable"
         ) from exc
+
+
+if (FRONTEND_DIST / "assets").is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST / "assets"),
+        name="frontend-assets"
+    )
+
+
+@app.get("/")
+def root():
+    index_file = FRONTEND_DIST / "index.html"
+
+    if index_file.is_file():
+        return FileResponse(index_file)
+
+    return {
+        "message": "Event Processing API is running",
+        "mode": "demo" if DEMO_MODE else "rabbitmq"
+    }

@@ -9,3 +9,5 @@ __pycache__/
 *.db-shm
 *.db-wal
 .env
+frontend/node_modules/
+frontend/dist/
