@@ -1,432 +1,269 @@
-\# Idempotent Event Processing System
+# Idempotent Event Processing System
 
+A fault-tolerant, Dockerized webhook processing backend built with **Python, FastAPI, RabbitMQ, Redis, and SQLite**.
 
+It accepts webhook events, processes them asynchronously with four concurrent consumers, guarantees that duplicate deliveries never create duplicate database records, retries failures automatically, and routes permanently failing messages to a Dead Letter Queue (DLQ).
 
-A fault-tolerant, Dockerized event processing backend built using \*\*Python, FastAPI, RabbitMQ, Redis, and SQLite\*\*.
+![Python](https://img.shields.io/badge/Python-3.x-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-REST%20API-009688)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-Broker-FF6600)
+![Redis](https://img.shields.io/badge/Redis-Dedup%20%26%20Locking-DC382D)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 
+---
 
+## Table of Contents
 
-The system accepts webhook events, processes them asynchronously using four concurrent consumers, prevents duplicate database inserts, retries failed events, and routes permanently failing messages to a Dead Letter Queue (DLQ).
+- [Why This Project](#why-this-project)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [How Idempotency Works](#how-idempotency-works)
+- [Retry and Dead Letter Queue](#retry-and-dead-letter-queue)
+- [Testing](#testing)
+- [Benchmarks](#benchmarks)
+- [Docker Integration Verification](#docker-integration-verification)
+- [Limitations](#limitations)
+- [Future Improvements](#future-improvements)
 
+---
 
+## Why This Project
 
-\## Features
+Payment gateways and other webhook providers use **at-least-once delivery**: the same event may arrive more than once. Without safeguards, this leads to duplicate records and inconsistent state.
 
+This project demonstrates a practical pattern for handling that safely: asynchronous processing through a message broker, Redis-based coordination between concurrent workers, and a database-level uniqueness guarantee as the final safety net.
 
+## Features
 
-\- REST API for webhook ingestion using FastAPI
+- **REST ingestion** – FastAPI webhook endpoint
+- **Async processing** – RabbitMQ main queue with four concurrent consumer workers
+- **Deduplication and locking** – Redis coordinates concurrent processing and detects recently completed events
+- **Persistent storage** – SQLite with a unique constraint on `event_id`
+- **Idempotent inserts** – safe under at-least-once delivery
+- **Automatic retries** – 2-second delay between attempts, maximum of three attempts
+- **Dead Letter Queue** – permanently failing messages are isolated for inspection
+- **Docker Compose** – one-command orchestration
+- **Automated tests** – PyTest suite
+- **Benchmarks** – throughput, duplicate-delivery, and latency scripts
 
-\- RabbitMQ-based asynchronous message processing
-
-\- Four concurrent worker processes
-
-\- Redis-based distributed event locking and deduplication
-
-\- SQLite persistence with unique event IDs
-
-\- At-least-once message delivery with idempotent database inserts
-
-\- Automatic retries with a 2-second delay
-
-\- Maximum of three processing attempts
-
-\- Dead Letter Queue for failed messages
-
-\- Docker Compose orchestration
-
-\- Automated PyTest tests
-
-\- Throughput, duplicate-delivery, and latency benchmarks
-
-
-
-\## Architecture
-
-
+## Architecture
 
 ```text
-
 Webhook Client
-
-&#x20;     |
-
-&#x20;     v
-
+      │
+      ▼
 FastAPI REST API
-
-&#x20;     |
-
-&#x20;     v
-
+      │
+      ▼
 RabbitMQ Main Queue
-
-&#x20;     |
-
-&#x20;     v
-
+      │
+      ▼
 Four Consumer Workers
-
-&#x20;     |
-
-&#x20;     +----> Redis (Locking / Deduplication)
-
-&#x20;     |
-
-&#x20;     +----> SQLite (Persistent Records)
-
-&#x20;     |
-
-&#x20;     +----> Processing Failure
-
-&#x20;                   |
-
-&#x20;                   v
-
-&#x20;             Retry Queue
-
-&#x20;             (2-second TTL)
-
-&#x20;                   |
-
-&#x20;                   v
-
-&#x20;             Main Queue
-
-&#x20;                   |
-
-&#x20;                   v
-
-&#x20;          Dead Letter Queue
-
-&#x20;          (After 3 Attempts)
-
+      │
+      ├──► Redis   (locking / deduplication)
+      ├──► SQLite  (persistent records)
+      └──► Processing failure
+                │
+                ▼
+          Retry Queue (2-second TTL)
+                │
+                ▼
+          Main Queue  ──► retried
+                │
+                ▼  (after 3 failed attempts)
+        Dead Letter Queue
 ```
 
+## Tech Stack
 
+| Component                 | Technology     |
+| ------------------------- | -------------- |
+| API                       | FastAPI        |
+| Language                  | Python         |
+| Message broker            | RabbitMQ       |
+| Deduplication and locking | Redis          |
+| Database                  | SQLite         |
+| Message client            | Pika           |
+| Containerization          | Docker Compose |
+| Testing                   | PyTest         |
 
-\## Technology Stack
-
-
-
-| Component | Technology |
-
-|---|---|
-
-| API | FastAPI |
-
-| Programming Language | Python |
-
-| Message Broker | RabbitMQ |
-
-| Deduplication and Locking | Redis |
-
-| Database | SQLite |
-
-| Containerization | Docker Compose |
-
-| Testing | PyTest |
-
-| Message Client | Pika |
-
-
-
-\## Project Structure
-
-
+## Project Structure
 
 ```text
-
 app/
-
-&#x20; main.py
-
-&#x20; rabbitmq.py
-
-&#x20; consumer.py
-
-&#x20; processor.py
-
-
+  main.py          # FastAPI app and webhook endpoint
+  rabbitmq.py      # RabbitMQ connection and queue setup
+  consumer.py      # Consumer worker and retry/DLQ handling
+  processor.py     # Idempotent event processing logic
 
 scripts/
-
-&#x20; benchmark.py
-
-&#x20; duplicate\_benchmark.py
-
-&#x20; latency\_benchmark.py
-
-
+  benchmark.py
+  duplicate_benchmark.py
+  latency_benchmark.py
 
 tests/
-
-&#x20; test\_processor.py
-
-
+  test_processor.py
 
 Dockerfile
-
 docker-compose.yml
-
 requirements.txt
-
 README.md
-
 ```
 
+## Getting Started
 
+### Prerequisites
 
-\## Getting Started
+- Docker Desktop
+- Docker Compose
 
-
-
-\### Prerequisites
-
-
-
-\- Docker Desktop
-
-\- Docker Compose
-
-
-
-\### Start the Application
-
-
+### 1. Start the application
 
 ```bash
-
 docker compose up -d --build --scale consumer=4
-
 ```
 
-
-
-\### Verify Running Services
-
-
+### 2. Verify services are running
 
 ```bash
-
 docker compose ps
-
 ```
 
-
-
-\### API Health Check
-
-
+### 3. Check API health
 
 ```bash
-
 curl http://localhost:8000/health
-
 ```
-
-
 
 Expected response:
 
-
-
 ```json
-
-{"status":"ok"}
-
+{"status": "ok"}
 ```
 
-
-
-\### Submit a Webhook Event
-
-
+### 4. Submit a webhook event
 
 ```bash
-
-curl -X POST http://localhost:8000/webhooks \\
-
-&#x20; -H "Content-Type: application/json" \\
-
-&#x20; -d '{"event\_id":"example\_001","event\_type":"payment.completed","payload":{"amount":500}}'
-
+curl -X POST http://localhost:8000/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"event_id":"example_001","event_type":"payment.completed","payload":{"amount":500}}'
 ```
 
-
-
-\### View Consumer Logs
-
-
+### 5. View consumer logs
 
 ```bash
-
 docker compose logs --tail=50 consumer
-
 ```
 
+### RabbitMQ Management Dashboard
 
+Open <http://localhost:15673>.
 
-\### RabbitMQ Management Dashboard
+For local development, the example Docker Compose file uses:
 
+| Username    | Password    |
+| ----------- | ----------- |
+| `eventuser` | `eventpass` |
 
+> **Security:** These are demonstration credentials. Replace them and manage secrets properly before deploying outside a trusted local environment.
 
-Open:
+## API Reference
 
+| Method | Endpoint     | Description                  |
+| ------ | ------------ | ---------------------------- |
+| `GET`  | `/health`    | Service health check         |
+| `POST` | `/webhooks`  | Submit a webhook event       |
 
+**Webhook request body**
 
-http://localhost:15673
+| Field        | Type   | Description                         |
+| ------------ | ------ | ----------------------------------- |
+| `event_id`   | string | Unique identifier used for dedup    |
+| `event_type` | string | Event category, e.g. `payment.completed` |
+| `payload`    | object | Event data                          |
 
+## How Idempotency Works
 
+Every event carries a unique `event_id`, and two layers protect against duplicates:
 
-For local development, the example Docker Compose configuration uses:
+1. **Redis** coordinates concurrent workers and detects recently completed events, so two workers never process the same event at the same time.
+2. **SQLite** enforces a unique constraint on `event_id`, acting as the final guarantee at the storage layer.
 
+Repeated delivery of the same event therefore does not create additional database records.
 
+> This design provides idempotent database insertion under at-least-once delivery. It does **not** guarantee exactly-once execution of arbitrary external side effects.
 
-\- Username: `eventuser`
+## Retry and Dead Letter Queue
 
-\- Password: `eventpass`
+When processing fails:
 
+1. The consumer publishes the message to a retry queue.
+2. RabbitMQ delays redelivery using a 2-second message TTL.
+3. The message returns to the main queue.
+4. Processing is attempted again.
+5. After three failed attempts, the message is routed to the DLQ.
 
-
-\*\*Security:\*\* These are demonstration credentials. Replace them and configure secrets securely before deploying outside a trusted local environment.
-
-
-
-\## Idempotency Strategy
-
-
-
-Each event contains a unique `event\_id`.
-
-
-
-The processor uses Redis to coordinate concurrent processing and detect recently completed events. SQLite also enforces uniqueness for event IDs.
-
-
-
-Repeated delivery of the same event does not create additional database records.
-
-
-
-This design supports idempotent database insertion under at-least-once delivery. It does \*\*not\*\* guarantee exactly-once execution of arbitrary external side effects.
-
-
-
-\## Retry and Dead Letter Queue
-
-
-
-When an event fails:
-
-
-
-1\. The consumer publishes the message to a retry queue.
-
-2\. RabbitMQ delays redelivery using a 2-second message TTL.
-
-3\. The message returns to the main queue.
-
-4\. Processing is attempted again.
-
-5\. After three failed attempts, the message is routed to the DLQ.
-
-
-
-\## Testing
-
-
-
-Run:
-
-
+## Testing
 
 ```bash
-
 python -m pytest tests -q
-
 ```
-
-
 
 Latest verified result:
 
-
-
 ```text
-
 5 passed in 0.61s
-
 ```
 
+The tests cover:
 
+- Initial event processing
+- Duplicate events
+- Multiple unique events
+- Concurrent duplicate submissions
+- Database persistence
 
-Tests cover initial processing, duplicate events, multiple unique events, concurrent duplicate submissions, and database persistence.
+## Benchmarks
 
+Measured locally using four concurrent threads and direct processor calls.
 
+| Benchmark                        |           Result |
+| -------------------------------- | ---------------: |
+| Unique events processed          |            1,000 |
+| Unique-event throughput          | 142.22 events/s  |
+| Duplicate benchmark deliveries   |            1,000 |
+| Duplicate benchmark unique events|              700 |
+| Duplicate database records       |                0 |
+| Duplicate benchmark throughput   | 204.91 deliveries/s |
+| Average processor latency        |         27.73 ms |
+| p95 processor latency            |         61.70 ms |
+| p99 processor latency            |         79.82 ms |
 
-\## Benchmarks
+> These figures reflect the **processor benchmark environment only**, not end-to-end HTTP-to-RabbitMQ throughput. Results vary with hardware, workload, and configuration.
 
-
-
-The following results were measured locally using four concurrent threads and direct processor calls.
-
-
-
-| Benchmark | Result |
-
-|---|---:|
-
-| Unique events processed | 1,000 |
-
-| Unique-event throughput | 142.22 events/sec |
-
-| Duplicate benchmark deliveries | 1,000 |
-
-| Duplicate benchmark unique events | 700 |
-
-| Duplicate database records | 0 |
-
-| Duplicate benchmark throughput | 204.91 deliveries/sec |
-
-| Average processor latency | 27.73 ms |
-
-| p95 processor latency | 61.70 ms |
-
-| p99 processor latency | 79.82 ms |
-
-
-
-These measurements represent the processor benchmark environment, \*\*not end-to-end HTTP-to-RabbitMQ throughput\*\*. Results may vary by hardware, workload, and configuration.
-
-
-
-\## Docker Integration Verification
-
-
+## Docker Integration Verification
 
 Successfully verified:
 
+- [x] Four RabbitMQ consumers connected
+- [x] Webhook accepted through the Dockerized API
+- [x] Event persisted to the shared SQLite database
+- [x] Repeated webhook delivery produced only one database record
+- [x] Injected processing failure reached the Dead Letter Queue
 
+## Limitations
 
-\- Four RabbitMQ consumers connected
+- SQLite is suited to local development and demos, not high-write production workloads.
+- Idempotency covers database inserts, not external side effects.
+- Benchmarks measure the processor in isolation, not the full pipeline.
+- Demo credentials are included for local use only.
 
-\- Webhook accepted through the Dockerized API
+## Future Improvements
 
-\- Event persisted to the shared SQLite database
-
-\- Repeated webhook delivery produced only one database record
-
-\- Injected processing failure reached the Dead Letter Queue
-
-
-
-\## Future Improvements
-
-
-
-\- PostgreSQL for production-grade persistence
-
-\- Transactional outbox for reliable publication of follow-up events
-
-\- Prom
-
+- PostgreSQL for production-grade persistence
+- Transactional outbox for reliable publication of follow-up events
+- Prometheus metrics and monitoring
