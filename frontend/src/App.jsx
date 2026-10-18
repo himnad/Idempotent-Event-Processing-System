@@ -1,5 +1,5 @@
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Activity, CheckCircle2, Copy, AlertTriangle,
   Send, Server, RefreshCw, Zap
@@ -17,6 +17,9 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [health, setHealth] = useState('Checking')
+  useEffect(() => {
+  checkHealth()
+}, [])
 
   async function checkHealth() {
     try {
