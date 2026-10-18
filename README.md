@@ -1,3 +1,8 @@
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
+
+---
+
+## Table of Contents
 # Idempotent Event Processing System
 
 A fault-tolerant, Dockerized webhook processing backend built with **Python, FastAPI, RabbitMQ, Redis, and SQLite**.
