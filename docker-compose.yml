@@ -1,0 +1,68 @@
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: event-rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: eventuser
+      RABBITMQ_DEFAULT_PASS: eventpass
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: event-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      RABBITMQ_URL: amqp://eventuser:eventpass@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      DB_PATH: /data/events.db
+    volumes:
+      - event_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  consumer:
+    build: .
+    command: ["python", "-m", "app.consumer"]
+    environment:
+      RABBITMQ_URL: amqp://eventuser:eventpass@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      DB_PATH: /data/events.db
+    volumes:
+      - event_data:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+  event_data:
