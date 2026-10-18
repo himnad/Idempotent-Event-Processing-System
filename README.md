@@ -53,6 +53,11 @@ This project demonstrates asynchronous message processing through RabbitMQ, Redi
 - **Tests and benchmarks:** PyTest suite and processor-level performance scripts.
 
 ## EventFlow Dashboard
+### Dashboard Preview
+
+![EventFlow Dashboard](screenshots/eventflow-dashboard.png)
+
+*Webhook submission and duplicate detection demonstrated in the EventFlow dashboard.*
 
 **Live:** https://idempotent-event-processing-system.onrender.com/
 
